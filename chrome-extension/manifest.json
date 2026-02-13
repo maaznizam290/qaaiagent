@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Test Flux Flow Recorder",
+  "version": "1.0.0",
+  "description": "Record user flows and transform into Playwright/Cypress tests.",
+  "permissions": ["storage", "activeTab", "tabs", "scripting"],
+  "host_permissions": ["http://localhost:4000/*", "https://*/*", "http://*/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Test Flux Recorder"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

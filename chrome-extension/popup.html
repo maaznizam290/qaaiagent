@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Test Flux Recorder</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Flow Recorder</h1>
+      <p>Record user flows from the active tab.</p>
+
+      <label>Flow Name *</label>
+      <input id="flowName" value="Recorded Flow" />
+
+      <label>API URL</label>
+      <input id="apiUrl" value="http://localhost:4000/api" />
+
+      <label>JWT Token</label>
+      <input id="token" placeholder="Paste token from app localStorage" />
+
+      <label>Self-Healing Target (Flow ID or URL)</label>
+      <input id="healingTarget" placeholder="e.g. 12 or https://example.com/login" />
+
+      <label>Framework</label>
+      <select id="healingFramework">
+        <option value="playwright">playwright</option>
+        <option value="cypress">cypress</option>
+      </select>
+
+      <div class="actions">
+        <button id="startBtn">Start</button>
+        <button id="stopBtn">Stop</button>
+      </div>
+
+      <div class="actions">
+        <button id="copyBtn">Copy JSON</button>
+        <button id="sendBtn">Send to API</button>
+      </div>
+
+      <div class="actions">
+        <button id="selfHealingBtn">Run Self-Healing</button>
+      </div>
+
+      <pre id="output">No recording yet.</pre>
+      <p id="status"></p>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
