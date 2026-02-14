@@ -124,4 +124,11 @@ export const api = {
       },
     });
   },
+  listFailureAnalyses(token) {
+    return request('/flows/failure-analyses', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
 };

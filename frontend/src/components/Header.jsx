@@ -17,6 +17,7 @@ export function Header() {
           <NavLink to="/pricing">Pricing</NavLink>
           <NavLink to="/script-engine">Script Engine</NavLink>
           {isAuthenticated && <NavLink to="/self-healing">Self-Healing</NavLink>}
+          {isAuthenticated && <NavLink to="/ai-failure-analysis">AI Failure Analysis</NavLink>}
         </nav>
 
         <div className="nav-actions">

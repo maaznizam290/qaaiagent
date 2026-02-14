@@ -33,6 +33,7 @@ export default function SelfHealingPage() {
   const [domCurrent, setDomCurrent] = useState('');
   const [healing, setHealing] = useState(null);
   const [run, setRun] = useState(null);
+  const [failureAnalysis, setFailureAnalysis] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -45,6 +46,7 @@ export default function SelfHealingPage() {
     setMessage('');
     setHealing(null);
     setRun(null);
+    setFailureAnalysis(null);
 
     const normalizedTarget = target.trim();
     const normalizedInstruction = instruction.trim();
@@ -88,6 +90,7 @@ export default function SelfHealingPage() {
         setMessage('Self-healing run completed.');
       }
       setRun(result.run || null);
+      setFailureAnalysis(result?.run?.failureAnalysis || null);
       setHealing(result.healing || null);
       setDomBefore(result?.domSnapshots?.before || '');
       setDomAfter(result?.domSnapshots?.after || '');
@@ -185,6 +188,20 @@ export default function SelfHealingPage() {
             <article className="card">
               <h3>DOM Diff</h3>
               <pre>{JSON.stringify(healing?.domDiff || {}, null, 2)}</pre>
+            </article>
+          </section>
+
+          <section className="dashboard-grid section-compact">
+            <article className="card">
+              <h3>Failure Analysis</h3>
+              <p><strong>Root Cause:</strong> {failureAnalysis?.rootCause || 'N/A'}</p>
+              <p><strong>Explanation:</strong> {failureAnalysis?.explanation || 'N/A'}</p>
+              <p><strong>Suggested Fix:</strong> {failureAnalysis?.suggestedFix || 'N/A'}</p>
+              <p><strong>Confidence:</strong> {failureAnalysis?.confidence || 'N/A'}</p>
+            </article>
+            <article className="card">
+              <h3>Failure Report</h3>
+              <pre>{JSON.stringify(run?.failureReport || {}, null, 2)}</pre>
             </article>
           </section>
         </div>

@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { useAuth } from './context/AuthContext';
 import CapabilitiesPage from './pages/CapabilitiesPage';
 import DashboardPage from './pages/DashboardPage';
+import AIFailureAnalysisPage from './pages/AIFailureAnalysisPage';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import PricingPage from './pages/PricingPage';
@@ -69,6 +70,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <SelfHealingPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/ai-failure-analysis"
+        element={
+          <ProtectedRoute>
+            <AIFailureAnalysisPage />
           </ProtectedRoute>
         }
       />

@@ -101,6 +101,36 @@ async function initDb() {
       FOREIGN KEY (user_id) REFERENCES users (id)
     )
   `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS failure_analyses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      test_run_id INTEGER NOT NULL UNIQUE,
+      user_id INTEGER NOT NULL,
+      failure_report_json TEXT NOT NULL,
+      analysis_json TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (test_run_id) REFERENCES test_runs (id),
+      FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+  `);
+
+  // Backfill-compatible columns so failed run records can carry AI artifacts directly.
+  try {
+    await run('ALTER TABLE test_runs ADD COLUMN failure_report_json TEXT');
+  } catch (error) {
+    if (!String(error?.message || '').includes('duplicate column name')) {
+      throw error;
+    }
+  }
+
+  try {
+    await run('ALTER TABLE test_runs ADD COLUMN failure_analysis_json TEXT');
+  } catch (error) {
+    if (!String(error?.message || '').includes('duplicate column name')) {
+      throw error;
+    }
+  }
 }
 
 module.exports = {

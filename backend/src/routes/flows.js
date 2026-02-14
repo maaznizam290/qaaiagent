@@ -3,6 +3,7 @@ const express = require('express');
 const { all, get, run } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { validateBody } = require('../middleware/validate');
+const { analyzeFailureReport, normalizeAnalysis } = require('../services/failureAnalyzer');
 const {
   buildHealingDiagnostics,
   buildFallbackDom,
@@ -26,6 +27,90 @@ const {
 } = require('../flows');
 
 const router = express.Router();
+
+function normalizeArrayArtifact(value) {
+  if (Array.isArray(value)) {
+    return value.map((x) => String(x));
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return [value];
+  }
+  return [];
+}
+
+function buildFailureReport({ req, flow, framework, logs, status, healing, extra = {} }) {
+  const artifacts = req.body?.failureArtifacts || {};
+  const frameworkName = framework || 'playwright';
+  const testFileContent = artifacts.testFileContent
+    || (frameworkName === 'cypress' ? flow?.transformedCypress : flow?.transformedPlaywright)
+    || '';
+  const defaultError = status === 'failed' ? 'Test run failed during execution.' : '';
+  const screenshotDescription = artifacts.screenshotDescription
+    || artifacts.screenshot
+    || '';
+  const reportConsoleLogs = normalizeArrayArtifact(artifacts.consoleLogs);
+  const reportNetworkLogs = normalizeArrayArtifact(artifacts.networkLogs);
+  const report = {
+    testName: String(artifacts.testName || flow?.name || 'Unknown test'),
+    errorMessage: String(artifacts.errorMessage || defaultError),
+    stackTrace: String(artifacts.stackTrace || ''),
+    consoleLogs: reportConsoleLogs,
+    networkLogs: reportNetworkLogs,
+    screenshotDescription: String(screenshotDescription || ''),
+    testFileContent: String(testFileContent || ''),
+  };
+
+  return {
+    ...report,
+    meta: {
+      generatedAt: new Date().toISOString(),
+      flowId: flow?.id || null,
+      flowName: flow?.name || null,
+      framework: frameworkName,
+      status,
+      route: req.originalUrl,
+    },
+    artifacts: {
+      errorMessage: report.errorMessage,
+      stackTrace: report.stackTrace,
+      consoleLogs: reportConsoleLogs,
+      networkLogs: reportNetworkLogs,
+      screenshot: artifacts.screenshot || null,
+      screenshotDescription: report.screenshotDescription,
+      testFileContent: report.testFileContent,
+    },
+    runtime: {
+      logs: String(logs || ''),
+      healingSummary: healing?.summary || null,
+      extra,
+    },
+  };
+}
+
+async function persistFailureAnalysis({ testRunId, userId, failureReport, analysis }) {
+  if (!testRunId) {
+    return;
+  }
+
+  await run(
+    `INSERT INTO failure_analyses (test_run_id, user_id, failure_report_json, analysis_json)
+     VALUES (?, ?, ?, ?)`,
+    [testRunId, userId, JSON.stringify(failureReport), JSON.stringify(analysis)]
+  );
+}
+
+async function attachFailureToTestRun({ testRunId, failureReport, analysis }) {
+  if (!testRunId) {
+    return;
+  }
+
+  await run(
+    `UPDATE test_runs
+     SET failure_report_json = ?, failure_analysis_json = ?
+     WHERE id = ?`,
+    [JSON.stringify(failureReport), JSON.stringify(analysis), testRunId]
+  );
+}
 
 function parseFlowRow(row) {
   return {
@@ -365,14 +450,65 @@ router.post('/self-healing/run', requireAuth, validateBody(runSelfHealingSchema)
       created_at: new Date().toISOString(),
     };
 
+    const shouldAnalyzeFailure = status === 'failed';
+    let failureReport = null;
+    let failureAnalysis = null;
+    if (shouldAnalyzeFailure) {
+      failureReport = buildFailureReport({
+        req,
+        flow,
+        framework,
+        logs: runRecord.logs,
+        status,
+        healing,
+        extra: {
+          resolvedUrl,
+          strictSelectorMatch,
+        },
+      });
+      try {
+        const analyzerResult = await analyzeFailureReport(failureReport);
+        if (analyzerResult?.ok) {
+          failureAnalysis = analyzerResult.analysis;
+        } else {
+          failureAnalysis = analyzerResult;
+        }
+      } catch (error) {
+        failureAnalysis = normalizeAnalysis({
+          rootCause: 'AI analysis failed to execute',
+          failureType: 'Environment',
+          explanation: error.message || 'Unknown analyzer error.',
+          suggestedFix: 'Verify OpenAI API key/connectivity and retry analysis.',
+          confidence: 25,
+        });
+      }
+    }
+
     if (effectiveFlowId) {
       const insertRun = await run(
         'INSERT INTO test_runs (flow_id, user_id, framework, status, logs, duration_ms) VALUES (?, ?, ?, ?, ?, ?)',
         [effectiveFlowId, req.user.sub, framework, status, runRecord.logs, runRecord.duration_ms]
       );
       const created = await get('SELECT * FROM test_runs WHERE id = ?', [insertRun.lastID]);
+      if (shouldAnalyzeFailure && failureReport && failureAnalysis) {
+        await attachFailureToTestRun({
+          testRunId: created.id,
+          failureReport,
+          analysis: failureAnalysis,
+        });
+        await persistFailureAnalysis({
+          testRunId: created.id,
+          userId: req.user.sub,
+          failureReport,
+          analysis: failureAnalysis,
+        });
+      }
       res.status(201).json({
-        run: created,
+        run: {
+          ...created,
+          failureReport,
+          failureAnalysis,
+        },
         healing,
         flow,
         domSnapshots: {
@@ -387,7 +523,11 @@ router.post('/self-healing/run', requireAuth, validateBody(runSelfHealingSchema)
     }
 
     res.status(201).json({
-      run: runRecord,
+      run: {
+        ...runRecord,
+        failureReport,
+        failureAnalysis,
+      },
       healing,
       flow,
       domSnapshots: {
@@ -412,6 +552,80 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/failure-analyses', requireAuth, async (req, res) => {
+  try {
+    const rows = await all(
+      `SELECT
+         fa.id,
+         fa.test_run_id,
+         fa.user_id,
+         fa.failure_report_json,
+         fa.analysis_json,
+         fa.created_at,
+         tr.flow_id,
+         tr.framework,
+         tr.status,
+         tr.logs,
+         tr.failure_report_json AS run_failure_report_json,
+         tr.failure_analysis_json AS run_failure_analysis_json
+       FROM failure_analyses fa
+       LEFT JOIN test_runs tr ON tr.id = fa.test_run_id
+       WHERE fa.user_id = ?
+       ORDER BY fa.created_at DESC`,
+      [req.user.sub]
+    );
+
+    const analyses = rows.map((row) => {
+      let failureReport = null;
+      let analysis = null;
+      try {
+        failureReport = JSON.parse(row.failure_report_json);
+      } catch (error) {
+        failureReport = null;
+      }
+      try {
+        analysis = JSON.parse(row.analysis_json);
+      } catch (error) {
+        analysis = null;
+      }
+
+      if (!failureReport && row.run_failure_report_json) {
+        try {
+          failureReport = JSON.parse(row.run_failure_report_json);
+        } catch (error) {
+          failureReport = null;
+        }
+      }
+      if (!analysis && row.run_failure_analysis_json) {
+        try {
+          analysis = JSON.parse(row.run_failure_analysis_json);
+        } catch (error) {
+          analysis = null;
+        }
+      }
+
+      return {
+        id: row.id,
+        testRunId: row.test_run_id,
+        userId: row.user_id,
+        createdAt: row.created_at,
+        run: {
+          flowId: row.flow_id,
+          framework: row.framework,
+          status: row.status,
+          logs: row.logs,
+        },
+        failureReport,
+        analysis,
+      };
+    });
+
+    res.json({ analyses });
+  } catch (error) {
+    res.status(500).json({ error: 'Unable to fetch failure analyses' });
+  }
+});
+
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     const row = await get('SELECT * FROM flows WHERE id = ? AND user_id = ?', [req.params.id, req.user.sub]);
@@ -421,7 +635,54 @@ router.get('/:id', requireAuth, async (req, res) => {
     }
 
     const runs = await all('SELECT * FROM test_runs WHERE flow_id = ? ORDER BY created_at DESC', [req.params.id]);
-    res.json({ flow: parseFlowRow(row), runs });
+    const runIds = runs.map((r) => r.id);
+    let analysesByRunId = {};
+    if (runIds.length > 0) {
+      const placeholders = runIds.map(() => '?').join(',');
+      const analysisRows = await all(
+        `SELECT test_run_id, failure_report_json, analysis_json FROM failure_analyses WHERE test_run_id IN (${placeholders})`,
+        runIds
+      );
+      analysesByRunId = analysisRows.reduce((acc, rowData) => {
+        let failureReport = null;
+        let failureAnalysis = null;
+        try {
+          failureReport = JSON.parse(rowData.failure_report_json);
+        } catch (error) {
+          failureReport = null;
+        }
+        try {
+          failureAnalysis = JSON.parse(rowData.analysis_json);
+        } catch (error) {
+          failureAnalysis = null;
+        }
+        acc[rowData.test_run_id] = { failureReport, failureAnalysis };
+        return acc;
+      }, {});
+    }
+
+    const decoratedRuns = runs.map((r) => {
+      let runFailureReport = null;
+      let runFailureAnalysis = null;
+      try {
+        runFailureReport = r.failure_report_json ? JSON.parse(r.failure_report_json) : null;
+      } catch (error) {
+        runFailureReport = null;
+      }
+      try {
+        runFailureAnalysis = r.failure_analysis_json ? JSON.parse(r.failure_analysis_json) : null;
+      } catch (error) {
+        runFailureAnalysis = null;
+      }
+
+      return {
+        ...r,
+        failureReport: runFailureReport || analysesByRunId[r.id]?.failureReport || null,
+        failureAnalysis: runFailureAnalysis || analysesByRunId[r.id]?.failureAnalysis || null,
+      };
+    });
+
+    res.json({ flow: parseFlowRow(row), runs: decoratedRuns });
   } catch (error) {
     res.status(500).json({ error: 'Unable to fetch flow details' });
   }
@@ -502,7 +763,64 @@ router.post('/:id/run', requireAuth, async (req, res) => {
     );
 
     const created = await get('SELECT * FROM test_runs WHERE id = ?', [insert.lastID]);
-    res.status(201).json({ run: created, healing });
+    const shouldAnalyzeFailure = status === 'failed';
+    let failureReport = null;
+    let failureAnalysis = null;
+
+    if (shouldAnalyzeFailure) {
+      failureReport = buildFailureReport({
+        req,
+        flow,
+        framework: frameworkParsed.data,
+        logs,
+        status,
+        healing,
+        extra: {
+          domSnapshotsProvided: {
+            before: Boolean(domBefore),
+            after: Boolean(domAfter),
+            current: Boolean(domCurrent),
+          },
+        },
+      });
+      try {
+        const analyzerResult = await analyzeFailureReport(failureReport);
+        if (analyzerResult?.ok) {
+          failureAnalysis = analyzerResult.analysis;
+        } else {
+          failureAnalysis = analyzerResult;
+        }
+      } catch (error) {
+        failureAnalysis = normalizeAnalysis({
+          rootCause: 'AI analysis failed to execute',
+          failureType: 'Environment',
+          explanation: error.message || 'Unknown analyzer error.',
+          suggestedFix: 'Verify OpenAI API key/connectivity and retry analysis.',
+          confidence: 25,
+        });
+      }
+
+      await persistFailureAnalysis({
+        testRunId: created.id,
+        userId: req.user.sub,
+        failureReport,
+        analysis: failureAnalysis,
+      });
+      await attachFailureToTestRun({
+        testRunId: created.id,
+        failureReport,
+        analysis: failureAnalysis,
+      });
+    }
+
+    res.status(201).json({
+      run: {
+        ...created,
+        failureReport,
+        failureAnalysis,
+      },
+      healing,
+    });
   } catch (error) {
     res.status(500).json({ error: 'Unable to execute flow' });
   }

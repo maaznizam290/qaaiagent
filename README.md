@@ -54,3 +54,16 @@ This project converts the MVP landing concept into a full-stack product with:
 4. Start recording from popup, stop, then:
    - copy JSON into dashboard Flow Recorder input, or
    - send directly to API with JWT token
+
+## MySQL Schema (Optional)
+
+If you want MySQL storage (e.g., XAMPP + TablePlus), run:
+
+- `backend/sql/mysql/testflux_ai_schema.sql`
+
+This script creates append-only tables for:
+
+1. Signup (`users`)
+2. Sign in verification/audit (`signin_events`)
+3. Test Flux Script Engine (`script_engine_runs`)
+4. Self-Healing Engine (`self_healing_runs`)
