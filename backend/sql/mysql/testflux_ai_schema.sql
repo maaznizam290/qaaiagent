@@ -121,7 +121,33 @@ CREATE TABLE IF NOT EXISTS self_healing_runs (
 ) ENGINE=InnoDB;
 
 -- =========================================================
--- 5) AI Failure Analysis (linked to test run id)
+-- 5) Test Runs
+-- =========================================================
+CREATE TABLE IF NOT EXISTS test_runs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  flow_id BIGINT UNSIGNED NULL,
+  framework ENUM('playwright', 'cypress') NOT NULL DEFAULT 'playwright',
+  status ENUM('passed', 'failed') NOT NULL,
+  analysis_status ENUM('pending', 'analyzing', 'completed', 'failed') NULL,
+  analysis_timestamp DATETIME NULL,
+  logs MEDIUMTEXT NULL,
+  duration_ms INT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_test_runs_user_id (user_id),
+  KEY idx_test_runs_flow_id (flow_id),
+  KEY idx_test_runs_status (status),
+  KEY idx_test_runs_analysis_status (analysis_status),
+  KEY idx_test_runs_created_at (created_at),
+  CONSTRAINT fk_test_runs_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON UPDATE RESTRICT
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+-- =========================================================
+-- 6) AI Failure Analysis (linked to test run id)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS failure_analyses (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -135,6 +161,28 @@ CREATE TABLE IF NOT EXISTS failure_analyses (
   KEY idx_failure_analyses_user_id (user_id),
   KEY idx_failure_analyses_created_at (created_at),
   CONSTRAINT fk_failure_analyses_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON UPDATE RESTRICT
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+-- =========================================================
+-- 7) Test Run Actions (panel actions audit)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS test_run_actions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  test_run_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  action_type ENUM('patch_suggestion', 'issue_ticket', 'known_flaky', 'rerun_test') NOT NULL,
+  payload_json JSON NULL,
+  status ENUM('requested', 'completed', 'failed') NOT NULL DEFAULT 'requested',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_test_run_actions_test_run_id (test_run_id),
+  KEY idx_test_run_actions_user_id (user_id),
+  KEY idx_test_run_actions_action_type (action_type),
+  KEY idx_test_run_actions_created_at (created_at),
+  CONSTRAINT fk_test_run_actions_user
     FOREIGN KEY (user_id) REFERENCES users(id)
     ON UPDATE RESTRICT
     ON DELETE RESTRICT
@@ -263,4 +311,6 @@ DELIMITER ;
 -- SELECT * FROM signin_events ORDER BY created_at DESC LIMIT 100;
 -- SELECT * FROM script_engine_runs ORDER BY created_at DESC LIMIT 100;
 -- SELECT * FROM self_healing_runs ORDER BY created_at DESC LIMIT 100;
+-- SELECT * FROM test_runs ORDER BY created_at DESC LIMIT 100;
 -- SELECT * FROM failure_analyses ORDER BY created_at DESC LIMIT 100;
+-- SELECT * FROM test_run_actions ORDER BY created_at DESC LIMIT 100;

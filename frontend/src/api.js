@@ -131,4 +131,61 @@ export const api = {
       },
     });
   },
+  uploadFailureAnalysisFile(payload, token) {
+    return request('/flows/failure-analyses/upload', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  previewFailureAnalysisFile(payload, token) {
+    return request('/flows/failure-analyses/preview', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  getFailureAnalysisByRunId(testRunId, token) {
+    return request(`/flows/failure-analyses/${encodeURIComponent(testRunId)}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  generatePatchSuggestion(testRunId, token) {
+    return request(`/flows/test-runs/${encodeURIComponent(testRunId)}/actions/patch-suggestion`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  createIssueTicket(testRunId, token) {
+    return request(`/flows/test-runs/${encodeURIComponent(testRunId)}/actions/issue-ticket`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  markKnownFlaky(testRunId, token) {
+    return request(`/flows/test-runs/${encodeURIComponent(testRunId)}/actions/known-flaky`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  rerunTest(testRunId, token) {
+    return request(`/flows/test-runs/${encodeURIComponent(testRunId)}/actions/rerun`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
 };

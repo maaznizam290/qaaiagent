@@ -293,6 +293,44 @@ pre {
   padding: 0.8rem;
 }
 
+.tab-row {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.analysis-fields {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.analysis-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+.badge-failure-ui {
+  background: #1f8fff;
+  color: #f2f8ff;
+}
+
+.badge-failure-backend {
+  background: #ff8a3d;
+  color: #fff5eb;
+}
+
+.badge-failure-test-code {
+  background: #00b39f;
+  color: #e9fffb;
+}
+
+.badge-failure-environment {
+  background: #7d89a8;
+  color: #f5f7ff;
+}
+
 @media (max-width: 900px) {
   .nav-links {
     display: none;
@@ -316,6 +354,10 @@ pre {
   }
 
   .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-actions {
     grid-template-columns: 1fr;
   }
 }

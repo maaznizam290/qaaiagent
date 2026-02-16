@@ -94,6 +94,8 @@ async function initDb() {
       user_id INTEGER NOT NULL,
       framework TEXT NOT NULL,
       status TEXT NOT NULL,
+      analysis_status TEXT,
+      analysis_timestamp DATETIME,
       logs TEXT,
       duration_ms INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -115,6 +117,20 @@ async function initDb() {
     )
   `);
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS test_run_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      test_run_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      action_type TEXT NOT NULL,
+      payload_json TEXT,
+      status TEXT NOT NULL DEFAULT 'requested',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (test_run_id) REFERENCES test_runs (id),
+      FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+  `);
+
   // Backfill-compatible columns so failed run records can carry AI artifacts directly.
   try {
     await run('ALTER TABLE test_runs ADD COLUMN failure_report_json TEXT');
@@ -126,6 +142,22 @@ async function initDb() {
 
   try {
     await run('ALTER TABLE test_runs ADD COLUMN failure_analysis_json TEXT');
+  } catch (error) {
+    if (!String(error?.message || '').includes('duplicate column name')) {
+      throw error;
+    }
+  }
+
+  try {
+    await run('ALTER TABLE test_runs ADD COLUMN analysis_status TEXT');
+  } catch (error) {
+    if (!String(error?.message || '').includes('duplicate column name')) {
+      throw error;
+    }
+  }
+
+  try {
+    await run('ALTER TABLE test_runs ADD COLUMN analysis_timestamp DATETIME');
   } catch (error) {
     if (!String(error?.message || '').includes('duplicate column name')) {
       throw error;

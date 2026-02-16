@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const fs = require('fs');
+const path = require('path');
 
 const { initDb } = require('./db');
 const authRoutes = require('./routes/auth');
@@ -8,6 +10,14 @@ const flowRoutes = require('./routes/flows');
 const waitlistRoutes = require('./routes/waitlist');
 
 dotenv.config();
+const backendEnvPath = path.join(__dirname, '..', '.env');
+const workspaceEnvPath = path.join(process.cwd(), '.env');
+if (fs.existsSync(backendEnvPath)) {
+  dotenv.config({ path: backendEnvPath, override: false });
+}
+if (workspaceEnvPath !== backendEnvPath && fs.existsSync(workspaceEnvPath)) {
+  dotenv.config({ path: workspaceEnvPath, override: false });
+}
 
 const app = express();
 const port = process.env.PORT || 4000;

@@ -3,7 +3,7 @@ const express = require('express');
 const { all, get, run } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { validateBody } = require('../middleware/validate');
-const { analyzeFailureReport, normalizeAnalysis } = require('../services/failureAnalyzer');
+const { analyzeFailureReport, normalizeAnalysis, validateFailureReport } = require('../services/failureAnalyzer');
 const {
   buildHealingDiagnostics,
   buildFallbackDom,
@@ -112,6 +112,119 @@ async function attachFailureToTestRun({ testRunId, failureReport, analysis }) {
   );
 }
 
+async function updateRunAnalysisState({ testRunId, analysisStatus }) {
+  if (!testRunId) {
+    return;
+  }
+
+  await run(
+    `UPDATE test_runs
+     SET analysis_status = ?, analysis_timestamp = ?
+     WHERE id = ?`,
+    [analysisStatus, new Date().toISOString(), testRunId]
+  );
+}
+
+async function loadTestRunWithAnalysis({ testRunId, userId }) {
+  const row = await get(
+    `SELECT
+       tr.id,
+       tr.flow_id,
+       tr.user_id,
+       tr.framework,
+       tr.status,
+       tr.logs,
+       tr.failure_report_json,
+       tr.failure_analysis_json,
+       fa.analysis_json AS linked_analysis_json
+     FROM test_runs tr
+     LEFT JOIN failure_analyses fa ON fa.test_run_id = tr.id
+     WHERE tr.id = ? AND tr.user_id = ?
+     LIMIT 1`,
+    [testRunId, userId]
+  );
+
+  if (!row) {
+    return null;
+  }
+
+  let failureReport = null;
+  let failureAnalysis = null;
+  try {
+    failureReport = row.failure_report_json ? JSON.parse(row.failure_report_json) : null;
+  } catch (error) {
+    failureReport = null;
+  }
+  try {
+    failureAnalysis = row.failure_analysis_json ? JSON.parse(row.failure_analysis_json) : null;
+  } catch (error) {
+    failureAnalysis = null;
+  }
+  if (!failureAnalysis && row.linked_analysis_json) {
+    try {
+      failureAnalysis = JSON.parse(row.linked_analysis_json);
+    } catch (error) {
+      failureAnalysis = null;
+    }
+  }
+
+  return {
+    run: row,
+    failureReport,
+    failureAnalysis,
+  };
+}
+
+async function recordTestRunAction({ testRunId, userId, actionType, payload, status = 'completed' }) {
+  const result = await run(
+    `INSERT INTO test_run_actions (test_run_id, user_id, action_type, payload_json, status)
+     VALUES (?, ?, ?, ?, ?)`,
+    [testRunId, userId, actionType, JSON.stringify(payload || {}), status]
+  );
+  return {
+    id: result.lastID,
+    testRunId,
+    actionType,
+    status,
+    payload,
+  };
+}
+
+function buildPatchSuggestionPayload({ testRunId, runContext }) {
+  const analysis = runContext.failureAnalysis || {};
+  const report = runContext.failureReport || {};
+  const target = report.testName || `run-${testRunId}`;
+  const suggestedFix = analysis.suggestedFix || 'Review selectors and stabilize waiting conditions.';
+  const rootCause = analysis.rootCause || 'Unknown root cause';
+  const patch = [
+    `// Patch suggestion for ${target}`,
+    `// Root cause: ${rootCause}`,
+    `// Suggested fix: ${suggestedFix}`,
+    '/*',
+    '1) Add resilient waiting before assertions.',
+    '2) Guard flaky selectors with fallback selectors.',
+    '3) Add retry for transient network failures.',
+    '*/',
+  ].join('\n');
+
+  return {
+    summary: `Patch suggestion generated for test run ${testRunId}.`,
+    patch,
+  };
+}
+
+function buildIssueTicketPayload({ testRunId, runContext }) {
+  const analysis = runContext.failureAnalysis || {};
+  const report = runContext.failureReport || {};
+  return {
+    title: `[Test Failure] ${report.testName || `Run ${testRunId}`} - ${analysis.failureType || 'Unknown'}`,
+    severity: analysis.severityLevel || 'medium',
+    impactedLayer: analysis.impactedLayer || 'Unknown',
+    description: analysis.explanation || 'No explanation available.',
+    suggestedFix: analysis.suggestedFix || 'No fix available.',
+  };
+}
+
 function parseFlowRow(row) {
   return {
     id: row.id,
@@ -125,6 +238,225 @@ function parseFlowRow(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function getNestedValue(obj, path) {
+  if (!obj || typeof obj !== 'object') {
+    return undefined;
+  }
+  return path.split('.').reduce((acc, segment) => {
+    if (acc && typeof acc === 'object' && Object.prototype.hasOwnProperty.call(acc, segment)) {
+      return acc[segment];
+    }
+    return undefined;
+  }, obj);
+}
+
+function pickFirstNonEmpty(values, fallback = '') {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value;
+    }
+    if (value !== undefined && value !== null && typeof value !== 'string') {
+      return String(value);
+    }
+  }
+  return fallback;
+}
+
+function toLogArray(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => {
+        if (typeof entry === 'string') {
+          return entry;
+        }
+        if (entry && typeof entry === 'object') {
+          if (entry.message) {
+            return String(entry.message);
+          }
+          return JSON.stringify(entry);
+        }
+        return String(entry || '');
+      })
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    // Support both newline and semicolon separated log dumps.
+    const splitByLine = value
+      .split(/\r?\n|;/g)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    return splitByLine.length > 0 ? splitByLine : [value.trim()];
+  }
+
+  if (value && typeof value === 'object') {
+    return [JSON.stringify(value)];
+  }
+
+  return [];
+}
+
+function parseUploadedFailureFile(fileContent) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(fileContent || ''));
+  } catch (error) {
+    return { error: 'Uploaded file must be valid JSON.' };
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { error: 'Uploaded JSON must be an object.' };
+  }
+
+  const reportCandidate = parsed.failureReport && typeof parsed.failureReport === 'object'
+    ? parsed.failureReport
+    : parsed;
+
+  const artifactsNode =
+    (reportCandidate.artifacts && typeof reportCandidate.artifacts === 'object' && reportCandidate.artifacts)
+    || (parsed.artifacts && typeof parsed.artifacts === 'object' && parsed.artifacts)
+    || {};
+  const runtimeNode =
+    (reportCandidate.runtime && typeof reportCandidate.runtime === 'object' && reportCandidate.runtime)
+    || (parsed.runtime && typeof parsed.runtime === 'object' && parsed.runtime)
+    || {};
+  const metaNode =
+    (reportCandidate.meta && typeof reportCandidate.meta === 'object' && reportCandidate.meta)
+    || (parsed.meta && typeof parsed.meta === 'object' && parsed.meta)
+    || {};
+
+  const consoleLogs = toLogArray(
+    reportCandidate.consoleLogs
+    ?? reportCandidate.console_logs
+    ?? artifactsNode.consoleLogs
+    ?? artifactsNode.console_logs
+    ?? getNestedValue(reportCandidate, 'logs.console')
+    ?? getNestedValue(parsed, 'logs.console')
+  );
+
+  const networkLogs = toLogArray(
+    reportCandidate.networkLogs
+    ?? reportCandidate.network_logs
+    ?? artifactsNode.networkLogs
+    ?? artifactsNode.network_logs
+    ?? getNestedValue(reportCandidate, 'logs.network')
+    ?? getNestedValue(parsed, 'logs.network')
+  );
+
+  const normalizedReport = {
+    testName: pickFirstNonEmpty(
+      [
+        reportCandidate.testName,
+        reportCandidate.test_name,
+        reportCandidate.name,
+        metaNode.flowName,
+        metaNode.flow_name,
+        metaNode.testName,
+      ],
+      'Uploaded Failure Report'
+    ),
+    errorMessage: pickFirstNonEmpty(
+      [
+        reportCandidate.errorMessage,
+        reportCandidate.error_message,
+        artifactsNode.errorMessage,
+        artifactsNode.error_message,
+        reportCandidate.message,
+      ],
+      ''
+    ),
+    stackTrace: pickFirstNonEmpty(
+      [
+        reportCandidate.stackTrace,
+        reportCandidate.stack_trace,
+        artifactsNode.stackTrace,
+        artifactsNode.stack_trace,
+        reportCandidate.trace,
+      ],
+      ''
+    ),
+    consoleLogs,
+    networkLogs,
+    screenshotDescription: pickFirstNonEmpty(
+      [
+        reportCandidate.screenshotDescription,
+        reportCandidate.screenshot_description,
+        artifactsNode.screenshotDescription,
+        artifactsNode.screenshot_description,
+        reportCandidate.screenshot,
+        artifactsNode.screenshot,
+      ],
+      ''
+    ),
+    testFileContent: pickFirstNonEmpty(
+      [
+        reportCandidate.testFileContent,
+        reportCandidate.test_file_content,
+        artifactsNode.testFileContent,
+        artifactsNode.test_file_content,
+        reportCandidate.testCode,
+        reportCandidate.code,
+        runtimeNode.testFileContent,
+        runtimeNode.test_file_content,
+      ],
+      ''
+    ),
+  };
+
+  const validation = validateFailureReport(normalizedReport);
+  if (!validation.isValid) {
+    return {
+      error: 'Uploaded JSON is missing required failure report fields.',
+      validation,
+    };
+  }
+
+  const hasAnySignal = [
+    normalizedReport.errorMessage,
+    normalizedReport.stackTrace,
+    normalizedReport.screenshotDescription,
+    normalizedReport.testFileContent,
+  ].some((v) => String(v || '').trim().length > 0)
+    || normalizedReport.consoleLogs.length > 0
+    || normalizedReport.networkLogs.length > 0;
+
+  // If artifact fields are sparse, still proceed by passing the raw uploaded JSON
+  // as context so AI analysis can run and return actionable output.
+  if (!hasAnySignal) {
+    normalizedReport.testFileContent = JSON.stringify(parsed, null, 2);
+  }
+
+  return { failureReport: normalizedReport };
+}
+
+async function ensureUploadFlowForUser(userId) {
+  const existing = await get(
+    'SELECT * FROM flows WHERE user_id = ? AND name = ? LIMIT 1',
+    [userId, 'Uploaded Failure Analyses']
+  );
+  if (existing) {
+    return parseFlowRow(existing);
+  }
+
+  const insert = await run(
+    `INSERT INTO flows
+     (user_id, name, start_url, events_json, selector_map_json, transformed_playwright, transformed_cypress)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      userId,
+      'Uploaded Failure Analyses',
+      null,
+      JSON.stringify([]),
+      JSON.stringify({}),
+      '',
+      '',
+    ]
+  );
+  const row = await get('SELECT * FROM flows WHERE id = ?', [insert.lastID]);
+  return parseFlowRow(row);
 }
 
 router.post('/', requireAuth, validateBody(createFlowSchema), async (req, res) => {
@@ -453,6 +785,8 @@ router.post('/self-healing/run', requireAuth, validateBody(runSelfHealingSchema)
     const shouldAnalyzeFailure = status === 'failed';
     let failureReport = null;
     let failureAnalysis = null;
+    let analysisStatus = null;
+    let analysisTimestamp = null;
     if (shouldAnalyzeFailure) {
       failureReport = buildFailureReport({
         req,
@@ -466,22 +800,6 @@ router.post('/self-healing/run', requireAuth, validateBody(runSelfHealingSchema)
           strictSelectorMatch,
         },
       });
-      try {
-        const analyzerResult = await analyzeFailureReport(failureReport);
-        if (analyzerResult?.ok) {
-          failureAnalysis = analyzerResult.analysis;
-        } else {
-          failureAnalysis = analyzerResult;
-        }
-      } catch (error) {
-        failureAnalysis = normalizeAnalysis({
-          rootCause: 'AI analysis failed to execute',
-          failureType: 'Environment',
-          explanation: error.message || 'Unknown analyzer error.',
-          suggestedFix: 'Verify OpenAI API key/connectivity and retry analysis.',
-          confidence: 25,
-        });
-      }
     }
 
     if (effectiveFlowId) {
@@ -489,25 +807,64 @@ router.post('/self-healing/run', requireAuth, validateBody(runSelfHealingSchema)
         'INSERT INTO test_runs (flow_id, user_id, framework, status, logs, duration_ms) VALUES (?, ?, ?, ?, ?, ?)',
         [effectiveFlowId, req.user.sub, framework, status, runRecord.logs, runRecord.duration_ms]
       );
-      const created = await get('SELECT * FROM test_runs WHERE id = ?', [insertRun.lastID]);
-      if (shouldAnalyzeFailure && failureReport && failureAnalysis) {
-        await attachFailureToTestRun({
-          testRunId: created.id,
-          failureReport,
-          analysis: failureAnalysis,
+      if (shouldAnalyzeFailure && failureReport) {
+        analysisStatus = 'pending';
+        analysisTimestamp = new Date().toISOString();
+        await updateRunAnalysisState({
+          testRunId: insertRun.lastID,
+          analysisStatus,
         });
-        await persistFailureAnalysis({
-          testRunId: created.id,
-          userId: req.user.sub,
-          failureReport,
-          analysis: failureAnalysis,
+        try {
+          analysisStatus = 'analyzing';
+          analysisTimestamp = new Date().toISOString();
+          await updateRunAnalysisState({
+            testRunId: insertRun.lastID,
+            analysisStatus,
+          });
+
+          const analyzerResult = await analyzeFailureReport(failureReport);
+          if (analyzerResult?.ok) {
+            failureAnalysis = analyzerResult.analysis;
+            analysisStatus = 'completed';
+            await attachFailureToTestRun({
+              testRunId: insertRun.lastID,
+              failureReport,
+              analysis: failureAnalysis,
+            });
+            await persistFailureAnalysis({
+              testRunId: insertRun.lastID,
+              userId: req.user.sub,
+              failureReport,
+              analysis: failureAnalysis,
+            });
+          } else {
+            failureAnalysis = analyzerResult;
+            analysisStatus = 'failed';
+          }
+        } catch (error) {
+          failureAnalysis = normalizeAnalysis({
+            rootCause: 'AI analysis failed to execute',
+            failureType: 'Environment',
+            explanation: error.message || 'Unknown analyzer error.',
+            suggestedFix: 'Verify OpenAI API key/connectivity and retry analysis.',
+            confidence: 25,
+          });
+          analysisStatus = 'failed';
+        }
+        analysisTimestamp = new Date().toISOString();
+        await updateRunAnalysisState({
+          testRunId: insertRun.lastID,
+          analysisStatus,
         });
       }
+      const created = await get('SELECT * FROM test_runs WHERE id = ?', [insertRun.lastID]);
       res.status(201).json({
         run: {
           ...created,
           failureReport,
           failureAnalysis,
+          analysisStatus: created.analysis_status || analysisStatus,
+          analysisTimestamp: created.analysis_timestamp || analysisTimestamp,
         },
         healing,
         flow,
@@ -566,6 +923,8 @@ router.get('/failure-analyses', requireAuth, async (req, res) => {
          tr.framework,
          tr.status,
          tr.logs,
+         tr.analysis_status,
+         tr.analysis_timestamp,
          tr.failure_report_json AS run_failure_report_json,
          tr.failure_analysis_json AS run_failure_analysis_json
        FROM failure_analyses fa
@@ -614,6 +973,8 @@ router.get('/failure-analyses', requireAuth, async (req, res) => {
           framework: row.framework,
           status: row.status,
           logs: row.logs,
+          analysisStatus: row.analysis_status || null,
+          analysisTimestamp: row.analysis_timestamp || null,
         },
         failureReport,
         analysis,
@@ -623,6 +984,337 @@ router.get('/failure-analyses', requireAuth, async (req, res) => {
     res.json({ analyses });
   } catch (error) {
     res.status(500).json({ error: 'Unable to fetch failure analyses' });
+  }
+});
+
+router.get('/failure-analyses/:testRunId', requireAuth, async (req, res) => {
+  try {
+    const runId = Number(req.params.testRunId);
+    if (!Number.isFinite(runId) || runId <= 0) {
+      res.status(400).json({ error: 'Invalid testRunId' });
+      return;
+    }
+
+    const row = await get(
+      `SELECT
+         fa.id,
+         fa.test_run_id,
+         fa.user_id,
+         fa.failure_report_json,
+         fa.analysis_json,
+         fa.created_at,
+         tr.flow_id,
+         tr.framework,
+         tr.status,
+         tr.logs,
+         tr.analysis_status,
+         tr.analysis_timestamp,
+         tr.failure_report_json AS run_failure_report_json,
+         tr.failure_analysis_json AS run_failure_analysis_json
+       FROM test_runs tr
+       LEFT JOIN failure_analyses fa ON fa.test_run_id = tr.id
+       WHERE tr.id = ? AND tr.user_id = ?
+       LIMIT 1`,
+      [runId, req.user.sub]
+    );
+
+    if (!row) {
+      res.status(404).json({ error: 'Test run not found' });
+      return;
+    }
+
+    let failureReport = null;
+    let analysis = null;
+
+    try {
+      failureReport = row.failure_report_json ? JSON.parse(row.failure_report_json) : null;
+    } catch (error) {
+      failureReport = null;
+    }
+    try {
+      analysis = row.analysis_json ? JSON.parse(row.analysis_json) : null;
+    } catch (error) {
+      analysis = null;
+    }
+
+    if (!failureReport && row.run_failure_report_json) {
+      try {
+        failureReport = JSON.parse(row.run_failure_report_json);
+      } catch (error) {
+        failureReport = null;
+      }
+    }
+    if (!analysis && row.run_failure_analysis_json) {
+      try {
+        analysis = JSON.parse(row.run_failure_analysis_json);
+      } catch (error) {
+        analysis = null;
+      }
+    }
+
+    res.json({
+      analysis: {
+        id: row.id || null,
+        testRunId: runId,
+        userId: row.user_id,
+        createdAt: row.created_at || null,
+        run: {
+          flowId: row.flow_id,
+          framework: row.framework,
+          status: row.status,
+          logs: row.logs,
+          analysisStatus: row.analysis_status || null,
+          analysisTimestamp: row.analysis_timestamp || null,
+        },
+        failureReport,
+        analysis,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Unable to fetch failure analysis by testRunId' });
+  }
+});
+
+router.post('/failure-analyses/preview', requireAuth, async (req, res) => {
+  try {
+    const { fileContent } = req.body || {};
+    if (typeof fileContent !== 'string' || fileContent.trim().length === 0) {
+      res.status(400).json({ error: 'fileContent is required and must be a non-empty string.' });
+      return;
+    }
+
+    const parsed = parseUploadedFailureFile(fileContent);
+    if (parsed.error) {
+      res.status(400).json({
+        error: parsed.error,
+        validation: parsed.validation || null,
+      });
+      return;
+    }
+
+    res.json({
+      failureReport: parsed.failureReport,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Unable to preview uploaded failure analysis file' });
+  }
+});
+
+router.post('/failure-analyses/upload', requireAuth, async (req, res) => {
+  try {
+    const { fileName = 'uploaded-report.json', fileContent } = req.body || {};
+    if (typeof fileContent !== 'string' || fileContent.trim().length === 0) {
+      res.status(400).json({ error: 'fileContent is required and must be a non-empty string.' });
+      return;
+    }
+
+    const parsed = parseUploadedFailureFile(fileContent);
+    if (parsed.error) {
+      res.status(400).json({
+        error: parsed.error,
+        validation: parsed.validation || null,
+      });
+      return;
+    }
+
+    const flow = await ensureUploadFlowForUser(req.user.sub);
+    const logs = `Uploaded failure analysis from file: ${fileName}`;
+    const insertRun = await run(
+      'INSERT INTO test_runs (flow_id, user_id, framework, status, logs, duration_ms) VALUES (?, ?, ?, ?, ?, ?)',
+      [flow.id, req.user.sub, 'playwright', 'failed', logs, 0]
+    );
+
+    const testRunId = insertRun.lastID;
+    await updateRunAnalysisState({ testRunId, analysisStatus: 'pending' });
+
+    let failureAnalysis = null;
+    try {
+      await updateRunAnalysisState({ testRunId, analysisStatus: 'analyzing' });
+      const analyzerResult = await analyzeFailureReport(parsed.failureReport);
+      if (analyzerResult?.ok) {
+        failureAnalysis = analyzerResult.analysis;
+        await updateRunAnalysisState({ testRunId, analysisStatus: 'completed' });
+      } else {
+        failureAnalysis = analyzerResult;
+        await updateRunAnalysisState({ testRunId, analysisStatus: 'failed' });
+      }
+
+      await attachFailureToTestRun({
+        testRunId,
+        failureReport: parsed.failureReport,
+        analysis: failureAnalysis,
+      });
+      await persistFailureAnalysis({
+        testRunId,
+        userId: req.user.sub,
+        failureReport: parsed.failureReport,
+        analysis: failureAnalysis,
+      });
+    } catch (error) {
+      failureAnalysis = normalizeAnalysis({
+        rootCause: 'AI analysis failed to execute',
+        failureType: 'Environment',
+        explanation: error.message || 'Unknown analyzer error.',
+        suggestedFix: 'Verify OpenAI API key/connectivity and retry analysis.',
+        confidence: 25,
+      });
+      await attachFailureToTestRun({
+        testRunId,
+        failureReport: parsed.failureReport,
+        analysis: failureAnalysis,
+      });
+      await persistFailureAnalysis({
+        testRunId,
+        userId: req.user.sub,
+        failureReport: parsed.failureReport,
+        analysis: failureAnalysis,
+      });
+      await updateRunAnalysisState({ testRunId, analysisStatus: 'failed' });
+    }
+
+    const created = await get('SELECT * FROM test_runs WHERE id = ?', [testRunId]);
+    res.status(201).json({
+      run: {
+        ...created,
+        failureReport: parsed.failureReport,
+        failureAnalysis,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Unable to process uploaded failure analysis file' });
+  }
+});
+
+router.post('/test-runs/:testRunId/actions/patch-suggestion', requireAuth, async (req, res) => {
+  try {
+    const testRunId = Number(req.params.testRunId);
+    if (!Number.isFinite(testRunId) || testRunId <= 0) {
+      res.status(400).json({ error: 'Invalid testRunId' });
+      return;
+    }
+
+    const runContext = await loadTestRunWithAnalysis({
+      testRunId,
+      userId: req.user.sub,
+    });
+    if (!runContext) {
+      res.status(404).json({ error: 'Test run not found' });
+      return;
+    }
+
+    const payload = buildPatchSuggestionPayload({ testRunId, runContext });
+    const action = await recordTestRunAction({
+      testRunId,
+      userId: req.user.sub,
+      actionType: 'patch_suggestion',
+      payload,
+    });
+    res.status(201).json({ action });
+  } catch (error) {
+    res.status(500).json({ error: 'Unable to generate patch suggestion' });
+  }
+});
+
+router.post('/test-runs/:testRunId/actions/issue-ticket', requireAuth, async (req, res) => {
+  try {
+    const testRunId = Number(req.params.testRunId);
+    if (!Number.isFinite(testRunId) || testRunId <= 0) {
+      res.status(400).json({ error: 'Invalid testRunId' });
+      return;
+    }
+
+    const runContext = await loadTestRunWithAnalysis({
+      testRunId,
+      userId: req.user.sub,
+    });
+    if (!runContext) {
+      res.status(404).json({ error: 'Test run not found' });
+      return;
+    }
+
+    const ticket = buildIssueTicketPayload({ testRunId, runContext });
+    const payload = {
+      ticketId: `TF-${Date.now()}`,
+      ...ticket,
+    };
+    const action = await recordTestRunAction({
+      testRunId,
+      userId: req.user.sub,
+      actionType: 'issue_ticket',
+      payload,
+    });
+    res.status(201).json({ action });
+  } catch (error) {
+    res.status(500).json({ error: 'Unable to create issue ticket' });
+  }
+});
+
+router.post('/test-runs/:testRunId/actions/known-flaky', requireAuth, async (req, res) => {
+  try {
+    const testRunId = Number(req.params.testRunId);
+    if (!Number.isFinite(testRunId) || testRunId <= 0) {
+      res.status(400).json({ error: 'Invalid testRunId' });
+      return;
+    }
+
+    const runContext = await loadTestRunWithAnalysis({
+      testRunId,
+      userId: req.user.sub,
+    });
+    if (!runContext) {
+      res.status(404).json({ error: 'Test run not found' });
+      return;
+    }
+
+    const payload = {
+      markedAt: new Date().toISOString(),
+      reason: runContext.failureAnalysis?.rootCause || 'Marked from AI analysis panel',
+    };
+    const action = await recordTestRunAction({
+      testRunId,
+      userId: req.user.sub,
+      actionType: 'known_flaky',
+      payload,
+    });
+    res.status(201).json({ action });
+  } catch (error) {
+    res.status(500).json({ error: 'Unable to mark run as known flaky' });
+  }
+});
+
+router.post('/test-runs/:testRunId/actions/rerun', requireAuth, async (req, res) => {
+  try {
+    const testRunId = Number(req.params.testRunId);
+    if (!Number.isFinite(testRunId) || testRunId <= 0) {
+      res.status(400).json({ error: 'Invalid testRunId' });
+      return;
+    }
+
+    const runContext = await loadTestRunWithAnalysis({
+      testRunId,
+      userId: req.user.sub,
+    });
+    if (!runContext) {
+      res.status(404).json({ error: 'Test run not found' });
+      return;
+    }
+
+    const payload = {
+      queuedAt: new Date().toISOString(),
+      flowId: runContext.run.flow_id,
+      framework: runContext.run.framework,
+      message: 'Re-run requested. Trigger /flows/:id/run to execute.',
+    };
+    const action = await recordTestRunAction({
+      testRunId,
+      userId: req.user.sub,
+      actionType: 'rerun_test',
+      payload,
+      status: 'requested',
+    });
+    res.status(202).json({ action });
+  } catch (error) {
+    res.status(500).json({ error: 'Unable to queue rerun request' });
   }
 });
 
@@ -766,6 +1458,8 @@ router.post('/:id/run', requireAuth, async (req, res) => {
     const shouldAnalyzeFailure = status === 'failed';
     let failureReport = null;
     let failureAnalysis = null;
+    let analysisStatus = null;
+    let analysisTimestamp = null;
 
     if (shouldAnalyzeFailure) {
       failureReport = buildFailureReport({
@@ -783,12 +1477,37 @@ router.post('/:id/run', requireAuth, async (req, res) => {
           },
         },
       });
+      analysisStatus = 'pending';
+      analysisTimestamp = new Date().toISOString();
+      await updateRunAnalysisState({
+        testRunId: created.id,
+        analysisStatus,
+      });
       try {
+        analysisStatus = 'analyzing';
+        analysisTimestamp = new Date().toISOString();
+        await updateRunAnalysisState({
+          testRunId: created.id,
+          analysisStatus,
+        });
         const analyzerResult = await analyzeFailureReport(failureReport);
         if (analyzerResult?.ok) {
           failureAnalysis = analyzerResult.analysis;
+          analysisStatus = 'completed';
+          await persistFailureAnalysis({
+            testRunId: created.id,
+            userId: req.user.sub,
+            failureReport,
+            analysis: failureAnalysis,
+          });
+          await attachFailureToTestRun({
+            testRunId: created.id,
+            failureReport,
+            analysis: failureAnalysis,
+          });
         } else {
           failureAnalysis = analyzerResult;
+          analysisStatus = 'failed';
         }
       } catch (error) {
         failureAnalysis = normalizeAnalysis({
@@ -798,26 +1517,23 @@ router.post('/:id/run', requireAuth, async (req, res) => {
           suggestedFix: 'Verify OpenAI API key/connectivity and retry analysis.',
           confidence: 25,
         });
+        analysisStatus = 'failed';
       }
-
-      await persistFailureAnalysis({
+      analysisTimestamp = new Date().toISOString();
+      await updateRunAnalysisState({
         testRunId: created.id,
-        userId: req.user.sub,
-        failureReport,
-        analysis: failureAnalysis,
-      });
-      await attachFailureToTestRun({
-        testRunId: created.id,
-        failureReport,
-        analysis: failureAnalysis,
+        analysisStatus,
       });
     }
 
+    const runWithAnalysis = await get('SELECT * FROM test_runs WHERE id = ?', [created.id]);
     res.status(201).json({
       run: {
-        ...created,
+        ...runWithAnalysis,
         failureReport,
         failureAnalysis,
+        analysisStatus: runWithAnalysis?.analysis_status || analysisStatus,
+        analysisTimestamp: runWithAnalysis?.analysis_timestamp || analysisTimestamp,
       },
       healing,
     });
