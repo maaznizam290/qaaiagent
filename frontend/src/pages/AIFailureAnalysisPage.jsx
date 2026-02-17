@@ -4,8 +4,6 @@ import { api } from '../api';
 import { Header } from '../components/Header';
 import { useAuth } from '../context/AuthContext';
 
-const ANALYSIS_CACHE_KEY = 'ai_failure_analysis_cache_v1';
-
 function normalizeConfidence(value) {
   const num = Number(value);
   if (!Number.isFinite(num)) {
@@ -24,13 +22,6 @@ function getFailureTypeBadgeClass(value) {
 
 export default function AIFailureAnalysisPage() {
   const { token } = useAuth();
-  useEffect(() => {
-    try {
-      localStorage.removeItem(ANALYSIS_CACHE_KEY);
-    } catch (error) {
-      // Ignore cache clear errors.
-    }
-  }, []);
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadFileContent, setUploadFileContent] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -49,45 +40,47 @@ export default function AIFailureAnalysisPage() {
   const [actionLoading, setActionLoading] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [actionError, setActionError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setLoading(true);
-      setError('');
-      try {
-        const result = await api.listFailureAnalyses(token);
-        if (cancelled) {
-          return;
-        }
-        const list = Array.isArray(result?.analyses) ? result.analyses : [];
-        setAnalyses(list);
-        setSelectedId((prev) => prev || list[0]?.id || null);
-      } catch (e) {
-        if (!cancelled) {
-          setError(e?.message || 'Unable to load AI failure analysis');
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+    // Always start with empty local page state on a fresh mount.
+    setUploadFile(null);
+    setUploadFileContent('');
+    setUploading(false);
+    setUploadMessage('');
+    setUploadError('');
+    setPreviewLoading(false);
+    setPreviewError('');
+    setPreviewReport(null);
+    setUploadedFallback(null);
+    setAnalyses([]);
+    setSelectedId(null);
+    setActiveTab('failureReport');
+    setAnalysisDetail(null);
+    setAnalysisLoading(false);
+    setAnalysisError('');
+    setActionLoading('');
+    setActionMessage('');
+    setActionError('');
+    setLoading(false);
+    setError('');
+  }, []);
 
   const selected = useMemo(
     () => analyses.find((item) => item.id === selectedId) || analyses[0] || null,
     [analyses, selectedId]
   );
   const effectiveSelected = selected || uploadedFallback;
+
+  useEffect(() => {
+    // Clear stale detail/action state whenever selected run changes.
+    setAnalysisDetail(null);
+    setAnalysisError('');
+    setActionLoading('');
+    setActionMessage('');
+    setActionError('');
+  }, [effectiveSelected?.id, effectiveSelected?.testRunId]);
 
   useEffect(() => {
     if (activeTab !== 'aiAnalysis' || !effectiveSelected?.testRunId) {
@@ -313,100 +306,97 @@ export default function AIFailureAnalysisPage() {
 
               <article className="card">
                 <h3>Failure Analysis Details</h3>
-                {effectiveSelected ? (
-                  <>
-                    <div className="tab-row">
-                      <button
-                        type="button"
-                        className={`btn ${activeTab === 'failureReport' ? 'btn-primary' : 'btn-outline'}`}
-                        onClick={() => setActiveTab('failureReport')}
-                      >
-                        Failure Report
-                      </button>
-                      <button
-                        type="button"
-                        className={`btn ${activeTab === 'aiAnalysis' ? 'btn-primary' : 'btn-outline'}`}
-                        onClick={() => setActiveTab('aiAnalysis')}
-                      >
-                        AI Analysis
-                      </button>
-                    </div>
+                <>
+                  <div className="tab-row">
+                    <button
+                      type="button"
+                      className={`btn ${activeTab === 'failureReport' ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setActiveTab('failureReport')}
+                    >
+                      Failure Report
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${activeTab === 'aiAnalysis' ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setActiveTab('aiAnalysis')}
+                    >
+                      AI Analysis
+                    </button>
+                  </div>
 
-                    {activeTab === 'failureReport' && (
-                      <pre>{JSON.stringify(effectiveSelected.failureReport || analysisDetail?.failureReport || {}, null, 2)}</pre>
-                    )}
+                  {activeTab === 'failureReport' && <pre>{JSON.stringify(effectiveSelected?.failureReport || {}, null, 2)}</pre>}
 
-                    {activeTab === 'aiAnalysis' && (
-                      <>
-                        {analysisLoading && <p>Loading AI analysis...</p>}
-                        {analysisError && <p className="error">{analysisError}</p>}
-                        {!analysisLoading && !analysisError && !analysisDetail?.analysis && (
-                          <p className="error">AI analysis is not available for this run.</p>
-                        )}
-                        {!analysisLoading && !analysisError && analysisDetail?.analysis && (
-                          <>
-                            <div className="analysis-fields">
-                              <p><strong>Root Cause:</strong> {analysisDetail.analysis.rootCause || 'N/A'}</p>
-                              <p>
-                                <strong>Failure Type:</strong>{' '}
-                                <span className={`badge ${getFailureTypeBadgeClass(analysisDetail.analysis.failureType)}`}>
-                                  {analysisDetail.analysis.failureType || 'N/A'}
-                                </span>
-                              </p>
-                              <p><strong>Impacted Layer:</strong> {analysisDetail.analysis.impactedLayer || 'N/A'}</p>
-                              <p><strong>Explanation:</strong> {analysisDetail.analysis.explanation || 'N/A'}</p>
-                              <p><strong>Suggested Fix:</strong> {analysisDetail.analysis.suggestedFix || 'N/A'}</p>
-                              <p>
-                                <strong>Confidence Score:</strong>{' '}
-                                {normalizeConfidence(analysisDetail.analysis.confidence)}
-                              </p>
-                            </div>
+                  {activeTab === 'aiAnalysis' && (
+                    <>
+                      {analysisLoading && <p>Loading AI analysis...</p>}
+                      {analysisError && <p className="error">{analysisError}</p>}
+                      {!analysisLoading && !analysisError && !effectiveSelected?.testRunId && (
+                        <p className="error">AI analysis is not available for this run.</p>
+                      )}
+                      {!analysisLoading && !analysisError && effectiveSelected?.testRunId && !analysisDetail?.analysis && (
+                        <p className="error">AI analysis is not available for this run.</p>
+                      )}
+                      {!analysisLoading && !analysisError && analysisDetail?.analysis && (
+                        <>
+                          <div className="analysis-fields">
+                            <p><strong>Root Cause:</strong> {analysisDetail.analysis.rootCause || 'N/A'}</p>
+                            <p>
+                              <strong>Failure Type:</strong>{' '}
+                              <span className={`badge ${getFailureTypeBadgeClass(analysisDetail.analysis.failureType)}`}>
+                                {analysisDetail.analysis.failureType || 'N/A'}
+                              </span>
+                            </p>
+                            <p><strong>Impacted Layer:</strong> {analysisDetail.analysis.impactedLayer || 'N/A'}</p>
+                            <p><strong>Explanation:</strong> {analysisDetail.analysis.explanation || 'N/A'}</p>
+                            <p><strong>Suggested Fix:</strong> {analysisDetail.analysis.suggestedFix || 'N/A'}</p>
+                            <p>
+                              <strong>Confidence Score:</strong>{' '}
+                              {normalizeConfidence(analysisDetail.analysis.confidence)}
+                            </p>
+                          </div>
 
-                            <div className="analysis-actions">
-                              <button
-                                type="button"
-                                className="btn btn-outline"
-                                disabled={actionLoading === 'patch'}
-                                onClick={() => runAction('patch', api.generatePatchSuggestion)}
-                              >
-                                {actionLoading === 'patch' ? 'Generating...' : 'Generate Patch Suggestion'}
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-outline"
-                                disabled={actionLoading === 'ticket'}
-                                onClick={() => runAction('ticket', api.createIssueTicket)}
-                              >
-                                {actionLoading === 'ticket' ? 'Creating...' : 'Create Issue Ticket'}
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-outline"
-                                disabled={actionLoading === 'flaky'}
-                                onClick={() => runAction('flaky', api.markKnownFlaky)}
-                              >
-                                {actionLoading === 'flaky' ? 'Marking...' : 'Mark as Known Flaky'}
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-outline"
-                                disabled={actionLoading === 'rerun'}
-                                onClick={() => runAction('rerun', api.rerunTest)}
-                              >
-                                {actionLoading === 'rerun' ? 'Submitting...' : 'Re-run Test'}
-                              </button>
-                            </div>
+                          <div className="analysis-actions">
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              disabled={actionLoading === 'patch'}
+                              onClick={() => runAction('patch', api.generatePatchSuggestion)}
+                            >
+                              {actionLoading === 'patch' ? 'Generating...' : 'Generate Patch Suggestion'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              disabled={actionLoading === 'ticket'}
+                              onClick={() => runAction('ticket', api.createIssueTicket)}
+                            >
+                              {actionLoading === 'ticket' ? 'Creating...' : 'Create Issue Ticket'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              disabled={actionLoading === 'flaky'}
+                              onClick={() => runAction('flaky', api.markKnownFlaky)}
+                            >
+                              {actionLoading === 'flaky' ? 'Marking...' : 'Mark as Known Flaky'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              disabled={actionLoading === 'rerun'}
+                              onClick={() => runAction('rerun', api.rerunTest)}
+                            >
+                              {actionLoading === 'rerun' ? 'Submitting...' : 'Re-run Test'}
+                            </button>
+                          </div>
 
-                            {actionMessage && <p className="success">{actionMessage}</p>}
-                            {actionError && <p className="error">{actionError}</p>}
-                          </>
-                        )}
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <p>Select an analysis to view details.</p>
-                )}
+                          {actionMessage && <p className="success">{actionMessage}</p>}
+                          {actionError && <p className="error">{actionError}</p>}
+                        </>
+                      )}
+                    </>
+                  )}
+                </>
               </article>
             </section>
           )}

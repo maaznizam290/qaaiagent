@@ -29,7 +29,7 @@ export default function RegisterPage() {
     setServerError('');
     try {
       await registerUser(values);
-      navigate('/dashboard', { replace: true });
+      navigate('/self-healing', { replace: true });
     } catch (error) {
       setServerError(error.message || 'Unable to create account');
     }

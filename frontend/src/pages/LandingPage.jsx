@@ -123,20 +123,22 @@ export default function LandingPage() {
             <h2>Simple, Transparent Pricing</h2>
             <div className="grid-3">
               {pricing.map((plan) => (
-                <article key={plan.name} className={`card ${plan.popular ? 'featured' : ''}`}>
-                  {plan.popular && <span className="badge">Most Popular</span>}
-                  <h3>{plan.name}</h3>
-                  <p>{plan.description}</p>
-                  <p>
-                    <strong>{plan.price}</strong>
-                    {plan.period}
-                  </p>
-                  <ul>
-                    {plan.features.map((feature) => (
-                      <li key={feature}>{feature}</li>
-                    ))}
-                  </ul>
-                </article>
+                <NavLink key={plan.name} to="/pricing" className="plan-card-link">
+                  <article className={`card ${plan.popular ? 'featured' : ''}`}>
+                    {plan.popular && <span className="badge">Most Popular</span>}
+                    <h3>{plan.name}</h3>
+                    <p>{plan.description}</p>
+                    <p>
+                      <strong>{plan.price}</strong>
+                      {plan.period}
+                    </p>
+                    <ul>
+                      {plan.features.map((feature) => (
+                        <li key={feature}>{feature}</li>
+                      ))}
+                    </ul>
+                  </article>
+                </NavLink>
               ))}
             </div>
           </div>

@@ -3,13 +3,17 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { useAuth } from './context/AuthContext';
 import CapabilitiesPage from './pages/CapabilitiesPage';
-import DashboardPage from './pages/DashboardPage';
 import AIFailureAnalysisPage from './pages/AIFailureAnalysisPage';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import PricingPage from './pages/PricingPage';
+import PricingPlansPage from './pages/PricingPlansPage';
+import PricingCalculatorPage from './pages/PricingCalculatorPage';
+import PricingFaqPage from './pages/PricingFaqPage';
+import ProfilePage from './pages/ProfilePage';
 import RegisterPage from './pages/RegisterPage';
 import RoadmapPage from './pages/RoadmapPage';
+import ScriptEnginePage from './pages/ScriptEnginePage';
 import SelfHealingPage from './pages/SelfHealingPage';
 
 function RedirectIfAuthed({ children }) {
@@ -20,7 +24,7 @@ function RedirectIfAuthed({ children }) {
   }
 
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/self-healing" replace />;
   }
 
   return children;
@@ -33,6 +37,9 @@ export default function App() {
       <Route path="/capabilities" element={<CapabilitiesPage />} />
       <Route path="/roadmap" element={<RoadmapPage />} />
       <Route path="/pricing" element={<PricingPage />} />
+      <Route path="/pricing/plans" element={<PricingPlansPage />} />
+      <Route path="/pricing/calculator" element={<PricingCalculatorPage />} />
+      <Route path="/pricing/faq" element={<PricingFaqPage />} />
       <Route
         path="/login"
         element={
@@ -50,10 +57,10 @@ export default function App() {
         }
       />
       <Route
-        path="/dashboard"
+        path="/profile"
         element={
           <ProtectedRoute>
-            <DashboardPage />
+            <ProfilePage />
           </ProtectedRoute>
         }
       />
@@ -61,7 +68,7 @@ export default function App() {
         path="/script-engine"
         element={
           <ProtectedRoute>
-            <DashboardPage />
+            <ScriptEnginePage />
           </ProtectedRoute>
         }
       />

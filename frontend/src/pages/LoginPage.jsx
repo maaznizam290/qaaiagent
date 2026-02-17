@@ -40,7 +40,7 @@ export default function LoginPage() {
 
     try {
       await login(values);
-      navigate(location.state?.from?.pathname || '/dashboard', { replace: true });
+      navigate(location.state?.from?.pathname || '/self-healing', { replace: true });
     } catch (error) {
       if (error.message === 'This user is not found') {
         setServerError('This user is not found');

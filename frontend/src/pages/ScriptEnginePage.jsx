@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 
 import { api } from '../api';
 import { Header } from '../components/Header';
@@ -27,9 +26,8 @@ function getApiErrorMessage(error, fallback) {
   return error?.message || fallback;
 }
 
-export default function DashboardPage() {
-  const { user, token } = useAuth();
-
+export default function ScriptEnginePage() {
+  const { token } = useAuth();
   const [url, setUrl] = useState('');
   const [instruction, setInstruction] = useState('');
   const [playwrightSpec, setPlaywrightSpec] = useState('');
@@ -102,35 +100,20 @@ export default function DashboardPage() {
       <Header />
       <main className="section">
         <div className="container">
-          <h1>Dashboard</h1>
-          <p>Welcome, {user?.name}. URL + instruction automation is ready.</p>
-          <p>
-            Need diagnostics? Open <Link to="/self-healing">Self-Healing Engine</Link>.
-          </p>
+          <h1>TestFlux Script Engine</h1>
+          <p>Paste only URL and plain-language instructions. No events JSON required.</p>
 
           <section className="dashboard-grid section-compact">
             <article className="card">
-              <h3>TestFlux Script Engine</h3>
-              <p>Paste only URL and plain-language instructions. No events JSON required.</p>
-
               <form className="waitlist-form" onSubmit={handleGenerate}>
                 <label>
                   URL *
-                  <input
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    required
-                  />
+                  <input value={url} onChange={(e) => setUrl(e.target.value)} required />
                 </label>
 
                 <label>
                   Instructions *
-                  <textarea
-                    value={instruction}
-                    onChange={(e) => setInstruction(e.target.value)}
-                    rows={8}
-                    required
-                  />
+                  <textarea value={instruction} onChange={(e) => setInstruction(e.target.value)} rows={8} required />
                 </label>
 
                 <div className="hero-actions">

@@ -125,7 +125,17 @@ export const api = {
     });
   },
   listFailureAnalyses(token) {
-    return request('/flows/failure-analyses', {
+    return request(`/flows/failure-analyses?t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  getFailureAnalysisByRunId(testRunId, token) {
+    const cacheBust = Date.now();
+    return request(`/flows/failure-analyses/${encodeURIComponent(testRunId)}?t=${cacheBust}`, {
+      cache: 'no-store',
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -144,13 +154,6 @@ export const api = {
     return request('/flows/failure-analyses/preview', {
       method: 'POST',
       body: JSON.stringify(payload),
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  },
-  getFailureAnalysisByRunId(testRunId, token) {
-    return request(`/flows/failure-analyses/${encodeURIComponent(testRunId)}`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
