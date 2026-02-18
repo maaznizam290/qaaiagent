@@ -3,30 +3,51 @@ import { Link } from 'react-router-dom';
 
 import { Header } from '../components/Header';
 
-const PLAN_RULES = [
-  { name: 'Solo', maxSeats: 1, basePrice: 49 },
-  { name: 'Startup', maxSeats: 20, basePrice: 299 },
-  { name: 'Enterprise', maxSeats: Infinity, basePrice: 999 },
-];
+function calculateEstimatedCost(UserType, TeamSeats) {
+  const individualBase = 39;
+  const teamBase = 150;
+  const standardSeats = 5;
 
-function estimatePrice(seats, runs, yearly) {
-  const matchedPlan = PLAN_RULES.find((p) => seats <= p.maxSeats) || PLAN_RULES[PLAN_RULES.length - 1];
-  const usageOverage = Math.max(0, runs - 2000);
-  const overageCost = matchedPlan.name === 'Enterprise' ? 0 : Math.ceil(usageOverage / 1000) * 30;
-  const monthly = matchedPlan.basePrice + overageCost;
-  const total = yearly ? Math.round(monthly * 12 * 0.8) : monthly;
-  return { plan: matchedPlan.name, total };
+  if (typeof UserType !== 'string') {
+    throw new Error('Invalid input: UserType must be a string.');
+  }
+
+  const normalizedType = UserType.trim().toLowerCase();
+  if (normalizedType !== 'individual' && normalizedType !== 'team') {
+    throw new Error("Invalid input: UserType must be 'individual' or 'team'.");
+  }
+
+  if (!Number.isInteger(TeamSeats)) {
+    throw new Error('Invalid input: TeamSeats must be an integer.');
+  }
+
+  if (TeamSeats <= 0) {
+    throw new Error('Invalid input: TeamSeats must be greater than 0.');
+  }
+
+  if (normalizedType === 'individual') {
+    return individualBase * TeamSeats;
+  }
+
+  return teamBase * (TeamSeats / standardSeats);
 }
 
 export default function PricingCalculatorPage() {
-  const [teamSeats, setTeamSeats] = useState(5);
-  const [monthlyRuns, setMonthlyRuns] = useState(1500);
-  const [yearlyBilling, setYearlyBilling] = useState(false);
+  const [teamSeats, setTeamSeats] = useState('5');
+  const [userType, setUserType] = useState('team');
 
-  const estimate = useMemo(
-    () => estimatePrice(Number(teamSeats), Number(monthlyRuns), yearlyBilling),
-    [teamSeats, monthlyRuns, yearlyBilling]
-  );
+  const result = useMemo(() => {
+    if (teamSeats === '' || userType.trim() === '') {
+      return { estimatedCost: null, error: 'Enter Team Seats and User Type.' };
+    }
+
+    try {
+      const estimatedCost = calculateEstimatedCost(userType, Number(teamSeats));
+      return { estimatedCost, error: '' };
+    } catch (error) {
+      return { estimatedCost: null, error: error.message || 'Invalid input.' };
+    }
+  }, [teamSeats, userType]);
 
   return (
     <>
@@ -34,7 +55,10 @@ export default function PricingCalculatorPage() {
       <main className="section">
         <div className="container narrow">
           <h1>Pricing Calculator</h1>
-          <p>Estimate your recommended plan and spend based on team size and test run volume.</p>
+          <p>Estimate annual pricing based on Team Seats and User Type.</p>
+          <p>
+            Formula: <code>individual = 39 * TeamSeats, team = 150 * (TeamSeats / 5)</code>
+          </p>
 
           <section className="card">
             <form className="waitlist-form" onSubmit={(e) => e.preventDefault()}>
@@ -45,34 +69,30 @@ export default function PricingCalculatorPage() {
                   min="1"
                   value={teamSeats}
                   onChange={(e) => setTeamSeats(e.target.value)}
+                  placeholder="Enter team seats (integer)"
                 />
               </label>
               <label>
-                Monthly Test Runs
-                <input
-                  type="number"
-                  min="0"
-                  step="100"
-                  value={monthlyRuns}
-                  onChange={(e) => setMonthlyRuns(e.target.value)}
-                />
-              </label>
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={yearlyBilling}
-                  onChange={(e) => setYearlyBilling(e.target.checked)}
-                />
-                Use yearly billing (20% discount)
+                User Type
+                <select value={userType} onChange={(e) => setUserType(e.target.value)}>
+                  <option value="individual">individual</option>
+                  <option value="team">team</option>
+                </select>
               </label>
             </form>
 
             <div className="pricing-result">
-              <h3>Recommended Plan: {estimate.plan}</h3>
-              <p>
-                <strong>Estimated Cost:</strong> ${estimate.total}
-                {yearlyBilling ? '/year' : '/month'}
-              </p>
+              {result.estimatedCost !== null ? (
+                <>
+                  <h3>Recommended Plan: {userType === 'individual' ? 'Individual' : 'Team'}</h3>
+                  <p>
+                    <strong>Estimated Cost:</strong> ${result.estimatedCost}/year
+                  </p>
+                </>
+              ) : (
+                <p>Enter valid Team Seats and User Type to see the estimate.</p>
+              )}
+              {result.error ? <p className="error">{result.error}</p> : null}
             </div>
           </section>
 
