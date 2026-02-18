@@ -56,9 +56,6 @@ export default function PricingCalculatorPage() {
         <div className="container narrow">
           <h1>Pricing Calculator</h1>
           <p>Estimate annual pricing based on Team Seats and User Type.</p>
-          <p>
-            Formula: <code>individual = 39 * TeamSeats, team = 150 * (TeamSeats / 5)</code>
-          </p>
 
           <section className="card">
             <form className="waitlist-form" onSubmit={(e) => e.preventDefault()}>
