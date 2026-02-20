@@ -131,6 +131,60 @@ async function initDb() {
     )
   `);
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS qa_test_plans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      input_json TEXT NOT NULL,
+      plan_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'generated',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS qa_coverage_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      report_json TEXT NOT NULL,
+      analysis_json TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS qa_ci_sync_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      provider TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      status_json TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS qa_learning_patterns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      pattern_key TEXT NOT NULL,
+      failure_type TEXT NOT NULL,
+      root_cause TEXT NOT NULL,
+      impacted_layer TEXT,
+      suggested_fix TEXT,
+      occurrence_count INTEGER NOT NULL DEFAULT 1,
+      last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      metadata_json TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, pattern_key),
+      FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+  `);
+
   // Backfill-compatible columns so failed run records can carry AI artifacts directly.
   try {
     await run('ALTER TABLE test_runs ADD COLUMN failure_report_json TEXT');

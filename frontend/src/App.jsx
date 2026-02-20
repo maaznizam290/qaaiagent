@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { useAuth } from './context/AuthContext';
 import CapabilitiesPage from './pages/CapabilitiesPage';
 import AIFailureAnalysisPage from './pages/AIFailureAnalysisPage';
+import AutonomousQaAgentPage from './pages/AutonomousQaAgentPage';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import PricingPage from './pages/PricingPage';
@@ -85,6 +86,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <AIFailureAnalysisPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/autonomous-qa-agent"
+        element={
+          <ProtectedRoute>
+            <AutonomousQaAgentPage />
           </ProtectedRoute>
         }
       />

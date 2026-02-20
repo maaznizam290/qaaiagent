@@ -7,6 +7,7 @@ const path = require('path');
 const { initDb } = require('./db');
 const authRoutes = require('./routes/auth');
 const flowRoutes = require('./routes/flows');
+const qaAgentRoutes = require('./routes/qaAgent');
 const waitlistRoutes = require('./routes/waitlist');
 
 dotenv.config();
@@ -49,6 +50,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/flows', flowRoutes);
+app.use('/api/qa-agent', qaAgentRoutes);
 app.use('/api/waitlist', waitlistRoutes);
 
 app.use((err, req, res, next) => {

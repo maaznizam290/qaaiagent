@@ -191,4 +191,62 @@ export const api = {
       },
     });
   },
+  generateQaTestPlan(payload, token) {
+    return request('/qa-agent/plans/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  analyzeQaCoverage(payload, token) {
+    return request('/qa-agent/coverage/analyze', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  getQaCiStatus(query, token) {
+    const params = new URLSearchParams(query).toString();
+    return request(`/qa-agent/ci/status?${params}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  learnFromQaFailure(payload, token) {
+    return request('/qa-agent/learn/failure', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  getQaLearningInsights(limit, token) {
+    return request(`/qa-agent/learn/insights?limit=${encodeURIComponent(limit || 10)}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  getQaCopilotRecommendations(payload, token) {
+    return request('/qa-agent/copilot/recommendations', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  getQaAgentOverview(token) {
+    return request('/qa-agent/overview', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
 };

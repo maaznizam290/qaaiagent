@@ -189,6 +189,79 @@ CREATE TABLE IF NOT EXISTS test_run_actions (
 ) ENGINE=InnoDB;
 
 -- =========================================================
+-- 8) Autonomous QA Agent
+-- =========================================================
+CREATE TABLE IF NOT EXISTS qa_test_plans (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  input_json JSON NOT NULL,
+  plan_json JSON NOT NULL,
+  status ENUM('generated', 'failed') NOT NULL DEFAULT 'generated',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_qa_test_plans_user_id (user_id),
+  KEY idx_qa_test_plans_created_at (created_at),
+  CONSTRAINT fk_qa_test_plans_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON UPDATE RESTRICT
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS qa_coverage_reports (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  report_json JSON NOT NULL,
+  analysis_json JSON NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_qa_coverage_reports_user_id (user_id),
+  KEY idx_qa_coverage_reports_created_at (created_at),
+  CONSTRAINT fk_qa_coverage_reports_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON UPDATE RESTRICT
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS qa_ci_sync_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  provider ENUM('github', 'gitlab') NOT NULL,
+  repo VARCHAR(255) NOT NULL,
+  status_json JSON NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_qa_ci_sync_logs_user_id (user_id),
+  KEY idx_qa_ci_sync_logs_created_at (created_at),
+  CONSTRAINT fk_qa_ci_sync_logs_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON UPDATE RESTRICT
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS qa_learning_patterns (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  pattern_key VARCHAR(255) NOT NULL,
+  failure_type VARCHAR(64) NOT NULL,
+  root_cause TEXT NOT NULL,
+  impacted_layer VARCHAR(120) NULL,
+  suggested_fix TEXT NULL,
+  occurrence_count INT UNSIGNED NOT NULL DEFAULT 1,
+  last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metadata_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_qa_learning_patterns_user_pattern (user_id, pattern_key),
+  KEY idx_qa_learning_patterns_user_id (user_id),
+  KEY idx_qa_learning_patterns_occurrence_count (occurrence_count),
+  CONSTRAINT fk_qa_learning_patterns_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON UPDATE RESTRICT
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+-- =========================================================
 -- Append-only protection (read-only after insert)
 -- =========================================================
 DELIMITER $$
@@ -314,3 +387,7 @@ DELIMITER ;
 -- SELECT * FROM test_runs ORDER BY created_at DESC LIMIT 100;
 -- SELECT * FROM failure_analyses ORDER BY created_at DESC LIMIT 100;
 -- SELECT * FROM test_run_actions ORDER BY created_at DESC LIMIT 100;
+-- SELECT * FROM qa_test_plans ORDER BY created_at DESC LIMIT 100;
+-- SELECT * FROM qa_coverage_reports ORDER BY created_at DESC LIMIT 100;
+-- SELECT * FROM qa_ci_sync_logs ORDER BY created_at DESC LIMIT 100;
+-- SELECT * FROM qa_learning_patterns ORDER BY occurrence_count DESC LIMIT 100;

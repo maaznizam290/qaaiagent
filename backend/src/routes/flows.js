@@ -4,6 +4,7 @@ const { all, get, run } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { validateBody } = require('../middleware/validate');
 const { analyzeFailureReport, normalizeAnalysis, validateFailureReport } = require('../services/failureAnalyzer');
+const { learnFromFailureAnalysis } = require('../services/qaAgent/learningService');
 const {
   buildHealingDiagnostics,
   buildFallbackDom,
@@ -97,6 +98,19 @@ async function persistFailureAnalysis({ testRunId, userId, failureReport, analys
      VALUES (?, ?, ?, ?)`,
     [testRunId, userId, JSON.stringify(failureReport), JSON.stringify(analysis)]
   );
+}
+
+async function learnFromFailureForQaAgent({ testRunId, userId, failureReport, analysis }) {
+  try {
+    await learnFromFailureAnalysis({
+      userId,
+      testRunId,
+      failureReport,
+      failureAnalysis: analysis,
+    });
+  } catch (error) {
+    // Keep execution non-blocking for primary flow run path.
+  }
 }
 
 async function attachFailureToTestRun({ testRunId, failureReport, analysis }) {
@@ -837,6 +851,12 @@ router.post('/self-healing/run', requireAuth, validateBody(runSelfHealingSchema)
               failureReport,
               analysis: failureAnalysis,
             });
+            await learnFromFailureForQaAgent({
+              testRunId: insertRun.lastID,
+              userId: req.user.sub,
+              failureReport,
+              analysis: failureAnalysis,
+            });
           } else {
             failureAnalysis = analyzerResult;
             analysisStatus = 'failed';
@@ -1150,6 +1170,12 @@ router.post('/failure-analyses/upload', requireAuth, async (req, res) => {
         failureReport: parsed.failureReport,
         analysis: failureAnalysis,
       });
+      await learnFromFailureForQaAgent({
+        testRunId,
+        userId: req.user.sub,
+        failureReport: parsed.failureReport,
+        analysis: failureAnalysis,
+      });
     } catch (error) {
       failureAnalysis = normalizeAnalysis({
         rootCause: 'AI analysis failed to execute',
@@ -1164,6 +1190,12 @@ router.post('/failure-analyses/upload', requireAuth, async (req, res) => {
         analysis: failureAnalysis,
       });
       await persistFailureAnalysis({
+        testRunId,
+        userId: req.user.sub,
+        failureReport: parsed.failureReport,
+        analysis: failureAnalysis,
+      });
+      await learnFromFailureForQaAgent({
         testRunId,
         userId: req.user.sub,
         failureReport: parsed.failureReport,
@@ -1495,6 +1527,12 @@ router.post('/:id/run', requireAuth, async (req, res) => {
           failureAnalysis = analyzerResult.analysis;
           analysisStatus = 'completed';
           await persistFailureAnalysis({
+            testRunId: created.id,
+            userId: req.user.sub,
+            failureReport,
+            analysis: failureAnalysis,
+          });
+          await learnFromFailureForQaAgent({
             testRunId: created.id,
             userId: req.user.sub,
             failureReport,

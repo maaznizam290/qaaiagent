@@ -20,6 +20,7 @@ export function Header() {
     { to: '/script-engine', label: 'Script Engine' },
     ...(isAuthenticated ? [{ to: '/self-healing', label: 'Self-Healing' }] : []),
     ...(isAuthenticated ? [{ to: '/ai-failure-analysis', label: 'AI Failure Analysis' }] : []),
+    ...(isAuthenticated ? [{ to: '/autonomous-qa-agent', label: 'Autonomous QA Agent' }] : []),
   ];
 
   return (
