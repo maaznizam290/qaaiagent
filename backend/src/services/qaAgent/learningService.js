@@ -81,7 +81,7 @@ async function getLearningInsights({ userId, limit = 10 }) {
     [userId, limit]
   );
 
-  return rows.map((row) => {
+  const mapped = rows.map((row) => {
     let metadata = null;
     try {
       metadata = row.metadata_json ? JSON.parse(row.metadata_json) : null;
@@ -100,10 +100,59 @@ async function getLearningInsights({ userId, limit = 10 }) {
       metadata,
     };
   });
+
+  if (mapped.length > 0) {
+    return mapped;
+  }
+
+  // Fallback insight from latest CI sync so the insights panel has actionable context
+  // even before failure-learning patterns are accumulated.
+  const ciRow = await get(
+    'SELECT status_json, created_at FROM qa_ci_sync_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
+    [userId]
+  );
+
+  if (!ciRow?.status_json) {
+    return mapped;
+  }
+
+  let status = null;
+  try {
+    status = JSON.parse(ciRow.status_json);
+  } catch (error) {
+    status = null;
+  }
+  if (!status || typeof status !== 'object') {
+    return mapped;
+  }
+
+  const latest = status.latest || {};
+  return [
+    {
+      id: 'ci-fallback-latest',
+      patternKey: 'ci-health-signal',
+      failureType: 'CI',
+      rootCause: `Latest CI health: ${status.health || 'unknown'}`,
+      impactedLayer: 'CI Pipeline',
+      suggestedFix:
+        (status.health === 'attention'
+          ? 'Stabilize failing CI run and unblock pipeline gates.'
+          : 'Continue monitoring CI trend and keep pipeline checks green.'),
+      occurrenceCount: 1,
+      lastSeenAt: ciRow.created_at,
+      metadata: {
+        provider: status.provider || null,
+        repo: status.repo || null,
+        latestStatus: latest.status || null,
+        latestConclusion: latest.conclusion || null,
+        latestRunUrl: latest.htmlUrl || null,
+        source: 'ci_fallback',
+      },
+    },
+  ];
 }
 
 module.exports = {
   learnFromFailureAnalysis,
   getLearningInsights,
 };
-

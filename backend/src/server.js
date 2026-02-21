@@ -9,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const flowRoutes = require('./routes/flows');
 const qaAgentRoutes = require('./routes/qaAgent');
 const waitlistRoutes = require('./routes/waitlist');
+const autonomousQaAgentRoutes = require('./routes/autonomousQaAgent');
 
 dotenv.config();
 const backendEnvPath = path.join(__dirname, '..', '.env');
@@ -52,6 +53,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/flows', flowRoutes);
 app.use('/api/qa-agent', qaAgentRoutes);
 app.use('/api/waitlist', waitlistRoutes);
+app.use('/api', autonomousQaAgentRoutes);
 
 app.use((err, req, res, next) => {
   if (err && err.type === 'entity.too.large') {

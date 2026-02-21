@@ -249,4 +249,13 @@ export const api = {
       },
     });
   },
+  analyzeAutonomousQaAgent(payload, token) {
+    return request('/autonomous-qa-agent/analyze', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
 };

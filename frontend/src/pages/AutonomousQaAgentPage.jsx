@@ -23,12 +23,20 @@ export default function AutonomousQaAgentPage() {
     repo: '',
     ref: '',
   });
+  const [autonomousInput, setAutonomousInput] = useState({
+    url: '',
+    apiDocs: '',
+    userStories: '',
+    dbSchema: '',
+    logs: '',
+  });
 
   const [overview, setOverview] = useState(null);
   const [planResult, setPlanResult] = useState(null);
   const [coverageResult, setCoverageResult] = useState(null);
   const [ciResult, setCiResult] = useState(null);
   const [copilotResult, setCopilotResult] = useState(null);
+  const [autonomousResult, setAutonomousResult] = useState(null);
   const [insights, setInsights] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -55,7 +63,11 @@ export default function AutonomousQaAgentPage() {
     setError('');
     setLoading(true);
     try {
-      const result = await api.generateQaTestPlan(planInput, token);
+      const payload = {
+        ...planInput,
+        repositoryUrl: planInput.repositoryUrl?.trim() ? planInput.repositoryUrl.trim() : undefined,
+      };
+      const result = await api.generateQaTestPlan(payload, token);
       setPlanResult(result.plan || null);
       await refreshOverview();
     } catch (e) {
@@ -75,7 +87,11 @@ export default function AutonomousQaAgentPage() {
       setCoverageResult(result.analysis || null);
       await refreshOverview();
     } catch (e) {
-      setError(e?.message || 'Unable to analyze coverage');
+      if (e instanceof SyntaxError) {
+        setError('Coverage JSON is invalid. Please provide valid JSON format.');
+      } else {
+        setError(e?.message || 'Unable to analyze coverage');
+      }
     } finally {
       setLoading(false);
     }
@@ -115,6 +131,27 @@ export default function AutonomousQaAgentPage() {
     }
   }
 
+  async function handleAnalyzeAutonomousAgent(event) {
+    event.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const payload = {
+        url: autonomousInput.url,
+        apiDocs: autonomousInput.apiDocs || undefined,
+        userStories: autonomousInput.userStories || undefined,
+        dbSchema: autonomousInput.dbSchema || undefined,
+        logs: autonomousInput.logs || undefined,
+      };
+      const result = await api.analyzeAutonomousQaAgent(payload, token);
+      setAutonomousResult(result || null);
+    } catch (e) {
+      setError(e?.message || 'Unable to analyze autonomous QA input');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <>
       <Header />
@@ -123,6 +160,79 @@ export default function AutonomousQaAgentPage() {
           <h1>Autonomous QA Agent</h1>
           <p>Autonomous QA co-pilot for test planning, coverage intelligence, CI monitoring, and failure learning.</p>
           {error && <p className="error">{error}</p>}
+
+          <section className="card section-compact">
+            <h3>Autonomous Product Analysis</h3>
+            <form className="waitlist-form" onSubmit={handleAnalyzeAutonomousAgent}>
+              <label>
+                URL
+                <input
+                  value={autonomousInput.url}
+                  onChange={(e) => setAutonomousInput((p) => ({ ...p, url: e.target.value }))}
+                  placeholder="https://example.com"
+                  required
+                />
+              </label>
+              <label>
+                API Docs
+                <textarea
+                  rows={5}
+                  value={autonomousInput.apiDocs}
+                  onChange={(e) => setAutonomousInput((p) => ({ ...p, apiDocs: e.target.value }))}
+                  placeholder="Swagger JSON or API docs URL"
+                />
+              </label>
+              <label>
+                User Stories
+                <textarea
+                  rows={5}
+                  value={autonomousInput.userStories}
+                  onChange={(e) => setAutonomousInput((p) => ({ ...p, userStories: e.target.value }))}
+                />
+              </label>
+              <label>
+                DB Schema
+                <textarea
+                  rows={5}
+                  value={autonomousInput.dbSchema}
+                  onChange={(e) => setAutonomousInput((p) => ({ ...p, dbSchema: e.target.value }))}
+                />
+              </label>
+              <label>
+                Logs
+                <textarea
+                  rows={5}
+                  value={autonomousInput.logs}
+                  onChange={(e) => setAutonomousInput((p) => ({ ...p, logs: e.target.value }))}
+                />
+              </label>
+              <button className="btn btn-primary" type="submit" disabled={loading}>
+                {loading ? 'Working...' : 'Analyze Product'}
+              </button>
+            </form>
+          </section>
+
+          <section className="dashboard-grid section-compact">
+            <article className="card">
+              <h3>UI Map</h3>
+              <pre>{formatJson(autonomousResult?.perceptionLayer?.uiMap || autonomousResult?.perceptionLayer?.uiElements)}</pre>
+            </article>
+            <article className="card">
+              <h3>User Flows</h3>
+              <pre>{formatJson(autonomousResult?.flows)}</pre>
+            </article>
+          </section>
+
+          <section className="dashboard-grid section-compact">
+            <article className="card">
+              <h3>Validation Rules</h3>
+              <pre>{formatJson(autonomousResult?.validations)}</pre>
+            </article>
+            <article className="card">
+              <h3>Risk Analysis</h3>
+              <pre>{formatJson(autonomousResult?.riskAnalysis)}</pre>
+            </article>
+          </section>
 
           <section className="dashboard-grid section-compact">
             <article className="card">
@@ -254,4 +364,3 @@ export default function AutonomousQaAgentPage() {
     </>
   );
 }
-

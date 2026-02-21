@@ -62,7 +62,7 @@ function buildFailureReport({ req, flow, framework, logs, status, healing, extra
   };
 
   return {
-    ...report,
+    ...report,    
     meta: {
       generatedAt: new Date().toISOString(),
       flowId: flow?.id || null,

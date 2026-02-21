@@ -177,15 +177,42 @@ router.get('/overview', requireAuth, async (req, res) => {
         [req.user.sub]
       ),
       all(
-        'SELECT id, created_at FROM qa_coverage_reports WHERE user_id = ? ORDER BY created_at DESC LIMIT 5',
+        `SELECT id, created_at, report_json, analysis_json
+         FROM qa_coverage_reports
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 5`,
         [req.user.sub]
       ),
       getLearningInsights({ userId: req.user.sub, limit: 5 }),
     ]);
 
+    const coverageReports = coverage.map((row) => {
+      let report = null;
+      let analysis = null;
+
+      try {
+        report = row.report_json ? JSON.parse(row.report_json) : null;
+      } catch (error) {
+        report = null;
+      }
+      try {
+        analysis = row.analysis_json ? JSON.parse(row.analysis_json) : null;
+      } catch (error) {
+        analysis = null;
+      }
+
+      return {
+        id: row.id,
+        createdAt: row.created_at,
+        report,
+        analysis,
+      };
+    });
+
     res.json({
       plans,
-      coverageReports: coverage,
+      coverageReports,
       learningInsights: insights,
     });
   } catch (error) {
@@ -194,4 +221,3 @@ router.get('/overview', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
-
