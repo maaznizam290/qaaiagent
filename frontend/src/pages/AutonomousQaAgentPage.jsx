@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { api } from '../api';
 import { Header } from '../components/Header';
@@ -16,7 +16,7 @@ export default function AutonomousQaAgentPage() {
     scope: 'Web app regression + API contract validation',
     repositoryUrl: '',
   });
-  const [coverageInput, setCoverageInput] = useState('{"total":{"lines":{"pct":78},"branches":{"pct":62},"functions":{"pct":80},"statements":{"pct":79}}}');
+  const [coverageInput, setCoverageInput] = useState('');
   const [ciInput, setCiInput] = useState({
     provider: 'github',
     owner: '',
@@ -37,7 +37,7 @@ export default function AutonomousQaAgentPage() {
   const [ciResult, setCiResult] = useState(null);
   const [copilotResult, setCopilotResult] = useState(null);
   const [autonomousResult, setAutonomousResult] = useState(null);
-  const [insights, setInsights] = useState([]);
+  const [insights, setInsights] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -53,10 +53,6 @@ export default function AutonomousQaAgentPage() {
       setError(e?.message || 'Unable to fetch QA agent overview');
     }
   }
-
-  useEffect(() => {
-    refreshOverview();
-  }, []);
 
   async function handleGeneratePlan(event) {
     event.preventDefault();

@@ -258,4 +258,21 @@ export const api = {
       },
     });
   },
+  executeRpaAgent(payload, token) {
+    return request('/rpa-agent', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  getRpaAgentWorkflow(workflowId, token) {
+    return request(`/rpa-agent/${encodeURIComponent(workflowId)}?t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
 };

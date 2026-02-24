@@ -10,6 +10,7 @@ const flowRoutes = require('./routes/flows');
 const qaAgentRoutes = require('./routes/qaAgent');
 const waitlistRoutes = require('./routes/waitlist');
 const autonomousQaAgentRoutes = require('./routes/autonomousQaAgent');
+const rpaRoutes = require('./routes/rpaRoutes');
 
 dotenv.config();
 const backendEnvPath = path.join(__dirname, '..', '.env');
@@ -52,6 +53,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/flows', flowRoutes);
 app.use('/api/qa-agent', qaAgentRoutes);
+app.use('/api/rpa-agent', rpaRoutes);
 app.use('/api/waitlist', waitlistRoutes);
 app.use('/api', autonomousQaAgentRoutes);
 

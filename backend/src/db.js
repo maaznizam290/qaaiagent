@@ -185,6 +185,21 @@ async function initDb() {
     )
   `);
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS rpa_workflows (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workflow_id TEXT NOT NULL UNIQUE,
+      user_id INTEGER NOT NULL,
+      instruction TEXT NOT NULL,
+      generated_workflow_json TEXT NOT NULL,
+      execution_logs TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+  `);
+
   // Backfill-compatible columns so failed run records can carry AI artifacts directly.
   try {
     await run('ALTER TABLE test_runs ADD COLUMN failure_report_json TEXT');

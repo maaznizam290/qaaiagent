@@ -21,6 +21,7 @@ export function Header() {
     ...(isAuthenticated ? [{ to: '/self-healing', label: 'Self-Healing' }] : []),
     ...(isAuthenticated ? [{ to: '/ai-failure-analysis', label: 'AI Failure Analysis' }] : []),
     ...(isAuthenticated ? [{ to: '/autonomous-qa-agent', label: 'Autonomous QA Agent' }] : []),
+    ...(isAuthenticated ? [{ to: '/rpa-agent', label: 'RPA Agent' }] : []),
   ];
 
   return (

@@ -261,6 +261,23 @@ CREATE TABLE IF NOT EXISTS qa_learning_patterns (
     ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS rpa_workflows (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  workflow_id VARCHAR(64) NOT NULL UNIQUE,
+  user_id BIGINT UNSIGNED NOT NULL,
+  instruction TEXT NOT NULL,
+  generated_workflow_json JSON NOT NULL,
+  execution_logs JSON NULL,
+  status ENUM('pending', 'running', 'completed', 'failed') NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_rpa_workflows_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON UPDATE CASCADE ON DELETE RESTRICT,
+  INDEX idx_rpa_workflows_user_created (user_id, created_at),
+  INDEX idx_rpa_workflows_status_created (status, created_at)
+) ENGINE=InnoDB;
+
 -- =========================================================
 -- Append-only protection (read-only after insert)
 -- =========================================================
@@ -391,3 +408,4 @@ DELIMITER ;
 -- SELECT * FROM qa_coverage_reports ORDER BY created_at DESC LIMIT 100;
 -- SELECT * FROM qa_ci_sync_logs ORDER BY created_at DESC LIMIT 100;
 -- SELECT * FROM qa_learning_patterns ORDER BY occurrence_count DESC LIMIT 100;
+-- SELECT * FROM rpa_workflows ORDER BY created_at DESC LIMIT 100;

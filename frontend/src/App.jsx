@@ -13,6 +13,7 @@ import PricingCalculatorPage from './pages/PricingCalculatorPage';
 import PricingFaqPage from './pages/PricingFaqPage';
 import ProfilePage from './pages/ProfilePage';
 import RegisterPage from './pages/RegisterPage';
+import RpaAgentPage from './pages/RpaAgentPage';
 import RoadmapPage from './pages/RoadmapPage';
 import ScriptEnginePage from './pages/ScriptEnginePage';
 import SelfHealingPage from './pages/SelfHealingPage';
@@ -94,6 +95,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <AutonomousQaAgentPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/rpa-agent"
+        element={
+          <ProtectedRoute>
+            <RpaAgentPage />
           </ProtectedRoute>
         }
       />
